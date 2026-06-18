@@ -32,26 +32,21 @@ public class mobil : MonoBehaviour
 
     private Rigidbody rb;
 
+    // ← Diakses oleh TruckEngine untuk enable/disable motor
+    [HideInInspector] public bool engineOn = false;
+
     private void Start()
     {
         rb = GetComponent<Rigidbody>();
 
-        // Berat truck realistis
         rb.mass = 4000f;
-
-        // Supaya stabil
         rb.interpolation = RigidbodyInterpolation.Interpolate;
         rb.collisionDetectionMode = CollisionDetectionMode.Continuous;
 
-        // Anti jungkir
         if (centerOfMass != null)
-        {
             rb.centerOfMass = transform.InverseTransformPoint(centerOfMass.position);
-        }
         else
-        {
             rb.centerOfMass = new Vector3(0f, -1.2f, 0f);
-        }
 
         SetupWheelFriction(frontLeftWheelCollider);
         SetupWheelFriction(frontRightWheelCollider);
@@ -79,10 +74,9 @@ public class mobil : MonoBehaviour
     {
         float speed = rb.linearVelocity.magnitude * 3.6f;
 
-        // Batas kecepatan
-        if (speed < maxSpeed)
+        // Hanya bergerak jika engine menyala
+        if (engineOn && speed < maxSpeed)
         {
-            // Penggerak roda belakang
             rearLeftWheelCollider.motorTorque = verticalInput * motorForce;
             rearRightWheelCollider.motorTorque = verticalInput * motorForce;
         }
@@ -93,7 +87,6 @@ public class mobil : MonoBehaviour
         }
 
         currentBrakeForce = isBraking ? brakeForce : 0f;
-
         ApplyBraking();
     }
 
@@ -108,23 +101,19 @@ public class mobil : MonoBehaviour
     private void HandleSteering()
     {
         currentSteerAngle = maxSteerAngle * horizontalInput;
-
         frontLeftWheelCollider.steerAngle = currentSteerAngle;
         frontRightWheelCollider.steerAngle = currentSteerAngle;
     }
 
     private void ApplyDownforce()
     {
-        rb.AddForce(
-            -transform.up * downforce * rb.linearVelocity.magnitude
-        );
+        rb.AddForce(-transform.up * downforce * rb.linearVelocity.magnitude);
     }
 
     private void UpdateWheels()
     {
         UpdateSingleWheel(frontLeftWheelCollider, frontLeftWheelTransform);
         UpdateSingleWheel(frontRightWheelCollider, frontRightWheelTransform);
-
         UpdateSingleWheel(rearLeftWheelCollider, rearLeftWheelTransform);
         UpdateSingleWheel(rearRightWheelCollider, rearRightWheelTransform);
     }
@@ -133,20 +122,13 @@ public class mobil : MonoBehaviour
     {
         Vector3 pos;
         Quaternion rot;
-
         wheelCollider.GetWorldPose(out pos, out rot);
-
         wheelTransform.position = pos;
 
-        // Fix roda kanan kebalik
         if (wheelTransform.name.Contains("Right"))
-        {
             wheelTransform.rotation = rot * Quaternion.Euler(0f, 180f, 0f);
-        }
         else
-        {
             wheelTransform.rotation = rot;
-        }
     }
 
     private void SetupWheelFriction(WheelCollider wheel)
