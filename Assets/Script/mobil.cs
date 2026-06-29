@@ -16,14 +16,12 @@ public class mobil : MonoBehaviour
     [SerializeField] private float downforce = 150f;
     [SerializeField] private Transform centerOfMass;
 
-    // Wheel Colliders
     [Header("Wheel Colliders")]
     [SerializeField] private WheelCollider frontLeftWheelCollider;
     [SerializeField] private WheelCollider frontRightWheelCollider;
     [SerializeField] private WheelCollider rearLeftWheelCollider;
     [SerializeField] private WheelCollider rearRightWheelCollider;
 
-    // Wheel Meshes
     [Header("Wheel Meshes")]
     [SerializeField] private Transform frontLeftWheelTransform;
     [SerializeField] private Transform frontRightWheelTransform;
@@ -32,8 +30,14 @@ public class mobil : MonoBehaviour
 
     private Rigidbody rb;
 
-    // ← Diakses oleh TruckEngine untuk enable/disable motor
     [HideInInspector] public bool engineOn = false;
+
+    // ==========================
+    // INPUT BUTTON MOBILE
+    // ==========================
+    private bool gasButtonPressed = false;
+    private bool reverseButtonPressed = false;
+    private bool brakeButtonPressed = false;
 
     private void Start()
     {
@@ -65,16 +69,31 @@ public class mobil : MonoBehaviour
 
     private void GetInput()
     {
-        horizontalInput = Input.GetAxis("Horizontal");
-        verticalInput = Input.GetAxis("Vertical");
-        isBraking = Input.GetKey(KeyCode.Space);
+        // Horizontal: gabung keyboard + steering wheel
+        float keyboardHorizontal = Input.GetAxis("Horizontal");
+
+        if (Mathf.Abs(steerInput) > 0.01f)
+            horizontalInput = steerInput;
+        else
+            horizontalInput = keyboardHorizontal;
+
+        // Vertikal dan rem tidak berubah
+        float keyboardVertical = Input.GetAxis("Vertical");
+
+        if (gasButtonPressed)
+            verticalInput = 1f;
+        else if (reverseButtonPressed)
+            verticalInput = -1f;
+        else
+            verticalInput = keyboardVertical;
+
+        isBraking = Input.GetKey(KeyCode.Space) || brakeButtonPressed;
     }
 
     private void HandleMotor()
     {
         float speed = rb.linearVelocity.magnitude * 3.6f;
 
-        // Hanya bergerak jika engine menyala
         if (engineOn && speed < maxSpeed)
         {
             rearLeftWheelCollider.motorTorque = verticalInput * motorForce;
@@ -122,7 +141,9 @@ public class mobil : MonoBehaviour
     {
         Vector3 pos;
         Quaternion rot;
+
         wheelCollider.GetWorldPose(out pos, out rot);
+
         wheelTransform.position = pos;
 
         if (wheelTransform.name.Contains("Right"))
@@ -140,5 +161,79 @@ public class mobil : MonoBehaviour
         WheelFrictionCurve sidewaysFriction = wheel.sidewaysFriction;
         sidewaysFriction.stiffness = 2.2f;
         wheel.sidewaysFriction = sidewaysFriction;
+    }
+
+    // ==================================================
+    // DIGUNAKAN OLEH TruckEngine
+    // ==================================================
+    public float GetVerticalInput()
+    {
+        return verticalInput;
+    }
+
+    public bool IsBraking()
+    {
+        return isBraking;
+    }
+
+    public bool IsGasPressed()
+    {
+        return gasButtonPressed || Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.UpArrow);
+    }
+
+    public bool IsReversePressed()
+    {
+        return reverseButtonPressed || Input.GetKey(KeyCode.S) || Input.GetKey(KeyCode.DownArrow);
+    }
+
+    public bool IsBrakePressed()
+    {
+        return brakeButtonPressed || Input.GetKey(KeyCode.Space);
+    }
+
+    private float steerInput = 0f;
+
+    public void SetSteerInput(float value)
+    {
+        steerInput = value;
+    }
+
+    // ==================================================
+    // BUTTON GAS
+    // ==================================================
+    public void GasDown()
+    {
+        gasButtonPressed = true;
+    }
+
+    public void GasUp()
+    {
+        gasButtonPressed = false;
+    }
+
+    // ==================================================
+    // BUTTON MUNDUR
+    // ==================================================
+    public void ReverseDown()
+    {
+        reverseButtonPressed = true;
+    }
+
+    public void ReverseUp()
+    {
+        reverseButtonPressed = false;
+    }
+
+    // ==================================================
+    // BUTTON REM
+    // ==================================================
+    public void BrakeDown()
+    {
+        brakeButtonPressed = true;
+    }
+
+    public void BrakeUp()
+    {
+        brakeButtonPressed = false;
     }
 }

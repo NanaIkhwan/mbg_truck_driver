@@ -65,7 +65,7 @@ public class TruckEngine : MonoBehaviour
         if (currentState == EngineState.Off || currentState == EngineState.Starting)
             return;
 
-        verticalInput = Input.GetAxisRaw("Vertical");
+        verticalInput = truckScript.GetVerticalInput();
         speed = rb.linearVelocity.magnitude * 3.6f;
 
         HandleEngineState();
@@ -73,14 +73,14 @@ public class TruckEngine : MonoBehaviour
 
     private void HandleEngineState()
     {
-        bool isBraking = Input.GetKey(KeyCode.Space);
+        bool isBraking = truckScript.IsBraking();
         bool isReversing = verticalInput < reverseThreshold;
         bool isAccelerating = verticalInput > 0.1f;
 
         // =====================
         // REM — loop selama Space ditahan
         // =====================
-        if (isBraking && speed > speedThreshold)
+        if (isBraking)
         {
             if (currentState != EngineState.Braking)
                 TransitionTo(EngineState.Braking);
@@ -90,7 +90,7 @@ public class TruckEngine : MonoBehaviour
         // Rem dilepas → kembali idle
         if (currentState == EngineState.Braking)
         {
-            if (!isBraking || speed <= speedThreshold)
+            if (!isBraking)
                 TransitionTo(EngineState.Idle);
             return;
         }
@@ -181,6 +181,17 @@ public class TruckEngine : MonoBehaviour
                 PlayLoop(mundurClip);
                 break;
         }
+    }
+
+    // =====================
+    // TOMBOL UI (Android alternatif tombol E)
+    // =====================
+    public void ToggleEngine()
+    {
+        if (currentState == EngineState.Off)
+            StartEngine();
+        else if (currentState != EngineState.Starting)
+            StopEngine();
     }
 
     private void StartEngine()
