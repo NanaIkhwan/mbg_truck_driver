@@ -20,6 +20,7 @@ public class TutorialManager : MonoBehaviour
     [Header("Referensi")]
     public TruckEngine truckEngine;
     public mobil truckMobil;
+    public SteeringWheel steeringWheel;
     public DeliveryManager deliveryManager;
     public GameObject missionPanel;
 
@@ -72,7 +73,9 @@ public class TutorialManager : MonoBehaviour
                 SetHighlight(false, false, false, true);
                 StartCoroutine(WaitForAction(() =>
                     Input.GetKey(KeyCode.A) || Input.GetKey(KeyCode.D) ||
-                    Input.GetKey(KeyCode.LeftArrow) || Input.GetKey(KeyCode.RightArrow)));
+                    Input.GetKey(KeyCode.LeftArrow) || Input.GetKey(KeyCode.RightArrow) ||
+                    steeringWheel.isSteeringLeft || steeringWheel.isSteeringRight
+                ));
                 break;
             case 5:
                 SetHighlight(false, false, true, false);

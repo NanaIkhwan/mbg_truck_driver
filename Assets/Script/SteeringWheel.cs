@@ -15,8 +15,11 @@ public class SteeringWheel : MonoBehaviour, IPointerDownHandler, IDragHandler, I
     private RectTransform rectTransform;
     private float currentAngle = 0f;
     private float targetAngle = 0f;
-    private float lastTouchAngle = 0f; // ← simpan sudut jari frame sebelumnya
+    private float lastTouchAngle = 0f;
     private bool isDragging = false;
+
+    [HideInInspector] public bool isSteeringLeft  = false;
+    [HideInInspector] public bool isSteeringRight = false;
 
     void Awake()
     {
@@ -33,17 +36,22 @@ public class SteeringWheel : MonoBehaviour, IPointerDownHandler, IDragHandler, I
             {
                 targetAngle = -keyInput * maxRotationAngle;
                 truckMobil.SetSteerInput(keyInput);
+
+                // Deteksi arah dari keyboard
+                isSteeringLeft  = keyInput < -0.1f;
+                isSteeringRight = keyInput >  0.1f;
             }
             else
             {
-                // Balik ke tengah pelan-pelan
                 targetAngle = Mathf.Lerp(targetAngle, 0f, Time.deltaTime * returnSpeed);
                 float steerValue = -(currentAngle / maxRotationAngle);
                 truckMobil.SetSteerInput(steerValue);
+
+                isSteeringLeft  = false;
+                isSteeringRight = false;
             }
         }
 
-        // Smooth currentAngle ngejar targetAngle
         currentAngle = Mathf.Lerp(currentAngle, targetAngle, Time.deltaTime * smoothSpeed);
         rectTransform.localRotation = Quaternion.Euler(0f, 0f, currentAngle);
     }
@@ -51,18 +59,13 @@ public class SteeringWheel : MonoBehaviour, IPointerDownHandler, IDragHandler, I
     public void OnPointerDown(PointerEventData eventData)
     {
         isDragging = true;
-        // Simpan sudut awal jari saat menyentuh
         lastTouchAngle = GetAngleFromCenter(eventData.position);
     }
 
     public void OnDrag(PointerEventData eventData)
     {
         float touchAngle = GetAngleFromCenter(eventData.position);
-
-        // Delta sudut dari frame sebelumnya — tidak akan loncat!
         float deltaAngle = Mathf.DeltaAngle(lastTouchAngle, touchAngle);
-
-        // Update lastTouchAngle tiap frame
         lastTouchAngle = touchAngle;
 
         targetAngle = Mathf.Clamp(
@@ -73,11 +76,17 @@ public class SteeringWheel : MonoBehaviour, IPointerDownHandler, IDragHandler, I
 
         float steerValue = -(targetAngle / maxRotationAngle);
         truckMobil.SetSteerInput(steerValue);
+
+        // Deteksi arah dari steering wheel
+        isSteeringRight = targetAngle < -5f;
+        isSteeringLeft  = targetAngle >  5f;
     }
 
     public void OnPointerUp(PointerEventData eventData)
     {
         isDragging = false;
+        isSteeringLeft  = false;
+        isSteeringRight = false;
         truckMobil.SetSteerInput(0f);
     }
 

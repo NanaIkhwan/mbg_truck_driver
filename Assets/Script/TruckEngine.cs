@@ -5,14 +5,14 @@ using System.Collections;
 public class TruckEngine : MonoBehaviour
 {
     [Header("Engine Audio Clips")]
-    [SerializeField] private AudioClip startClip;       // start.wav
-    [SerializeField] private AudioClip idleClip;        // idle.wav (loop)
-    [SerializeField] private AudioClip up01Clip;        // up 0-1.wav
-    [SerializeField] private AudioClip up12Clip;        // up 1-2.wav
-    [SerializeField] private AudioClip idle2Clip;       // 2 idle.wav (loop, saat jalan)
-    [SerializeField] private AudioClip downClip;        // down.wav
-    [SerializeField] private AudioClip brakeClip;       // brake.wav (loop selama nahan)
-    [SerializeField] private AudioClip mundurClip;      // mundur.wav (loop selama nahan)
+    [SerializeField] private AudioClip startClip;
+    [SerializeField] private AudioClip idleClip;
+    [SerializeField] private AudioClip up01Clip;
+    [SerializeField] private AudioClip up12Clip;
+    [SerializeField] private AudioClip idle2Clip;
+    [SerializeField] private AudioClip downClip;
+    [SerializeField] private AudioClip brakeClip;
+    [SerializeField] private AudioClip mundurClip;
 
     [Header("Engine Settings")]
     [SerializeField] private float speedThreshold = 2f;
@@ -24,15 +24,7 @@ public class TruckEngine : MonoBehaviour
 
     public enum EngineState
     {
-        Off,
-        Starting,
-        Idle,
-        Up01,
-        Up12,
-        Running,
-        Down,
-        Braking,
-        Reverse
+        Off, Starting, Idle, Up01, Up12, Running, Down, Braking, Reverse
     }
 
     private EngineState currentState = EngineState.Off;
@@ -46,6 +38,9 @@ public class TruckEngine : MonoBehaviour
         audioSource.loop = false;
         audioSource.playOnAwake = false;
 
+        // Sync volume dengan SettingManager
+        audioSource.volume = SettingManager.SFXVolume;
+
         truckScript = GetComponent<mobil>();
         rb = GetComponent<Rigidbody>();
 
@@ -54,6 +49,9 @@ public class TruckEngine : MonoBehaviour
 
     private void Update()
     {
+        // Sync volume tiap frame kalau berubah dari setting
+        audioSource.volume = SettingManager.SFXVolume;
+
         if (Input.GetKeyDown(KeyCode.E))
         {
             if (currentState == EngineState.Off)
@@ -77,9 +75,6 @@ public class TruckEngine : MonoBehaviour
         bool isReversing = verticalInput < reverseThreshold;
         bool isAccelerating = verticalInput > 0.1f;
 
-        // =====================
-        // REM — loop selama Space ditahan
-        // =====================
         if (isBraking)
         {
             if (currentState != EngineState.Braking)
@@ -87,7 +82,6 @@ public class TruckEngine : MonoBehaviour
             return;
         }
 
-        // Rem dilepas → kembali idle
         if (currentState == EngineState.Braking)
         {
             if (!isBraking)
@@ -95,9 +89,6 @@ public class TruckEngine : MonoBehaviour
             return;
         }
 
-        // =====================
-        // MUNDUR — loop selama S ditahan
-        // =====================
         if (isReversing)
         {
             if (currentState != EngineState.Reverse)
@@ -105,16 +96,12 @@ public class TruckEngine : MonoBehaviour
             return;
         }
 
-        // S dilepas → kembali idle
         if (currentState == EngineState.Reverse)
         {
             TransitionTo(EngineState.Idle);
             return;
         }
 
-        // =====================
-        // NORMAL STATE
-        // =====================
         switch (currentState)
         {
             case EngineState.Idle:
@@ -128,7 +115,6 @@ public class TruckEngine : MonoBehaviour
                 break;
 
             case EngineState.Down:
-                // User tekan gas lagi saat down → langsung up lagi
                 if (isAccelerating && !isTransitioning)
                     TransitionTo(EngineState.Up01);
                 break;
@@ -137,7 +123,6 @@ public class TruckEngine : MonoBehaviour
 
     private void TransitionTo(EngineState newState)
     {
-        // Boleh interrupt saat pindah ke Braking, Reverse, atau Up01
         bool canInterrupt = newState == EngineState.Braking
                          || newState == EngineState.Reverse
                          || newState == EngineState.Up01
@@ -151,41 +136,16 @@ public class TruckEngine : MonoBehaviour
 
         switch (newState)
         {
-            case EngineState.Idle:
-                PlayLoop(idleClip);
-                break;
-
-            case EngineState.Up01:
-                PlayOneShot(up01Clip, EngineState.Up12);
-                break;
-
-            case EngineState.Up12:
-                PlayOneShot(up12Clip, EngineState.Running);
-                break;
-
-            case EngineState.Running:
-                PlayLoop(idle2Clip);
-                break;
-
-            case EngineState.Down:
-                PlayOneShot(downClip, EngineState.Idle);
-                break;
-
-            case EngineState.Braking:
-                // Loop selama ditahan
-                PlayLoop(brakeClip);
-                break;
-
-            case EngineState.Reverse:
-                // Loop selama ditahan
-                PlayLoop(mundurClip);
-                break;
+            case EngineState.Idle:     PlayLoop(idleClip);                    break;
+            case EngineState.Up01:     PlayOneShot(up01Clip, EngineState.Up12);   break;
+            case EngineState.Up12:     PlayOneShot(up12Clip, EngineState.Running); break;
+            case EngineState.Running:  PlayLoop(idle2Clip);                   break;
+            case EngineState.Down:     PlayOneShot(downClip, EngineState.Idle);   break;
+            case EngineState.Braking:  PlayLoop(brakeClip);                   break;
+            case EngineState.Reverse:  PlayLoop(mundurClip);                  break;
         }
     }
 
-    // =====================
-    // TOMBOL UI (Android alternatif tombol E)
-    // =====================
     public void ToggleEngine()
     {
         if (currentState == EngineState.Off)
@@ -214,11 +174,7 @@ public class TruckEngine : MonoBehaviour
 
     private void PlayOneShot(AudioClip clip, EngineState nextState)
     {
-        if (clip == null)
-        {
-            TransitionTo(nextState);
-            return;
-        }
+        if (clip == null) { TransitionTo(nextState); return; }
 
         isTransitioning = true;
         audioSource.loop = false;
