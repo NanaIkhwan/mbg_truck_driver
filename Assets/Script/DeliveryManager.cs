@@ -27,6 +27,38 @@ public class DeliveryManager : MonoBehaviour
     private float totalWaktu = 0f;
     private int skor = 0;
 
+    // Dipanggil TutorialManager setelah tutorial selesai (New Game)
+    public void StartMission()
+    {
+        currentDelivery = 0;
+        totalWaktu = 0f;
+        skor = 0;
+        StartMissionInternal();
+    }
+
+    // Dipanggil saat Continue dari MainMenu
+    public void ContinueMission()
+    {
+        currentDelivery = SaveManager.LoadDelivery();
+        totalWaktu = SaveManager.LoadWaktu();
+        skor = SaveManager.LoadSkor();
+
+        // Pastikan mission panel aktif
+        if (missionPanel != null) missionPanel.SetActive(true);
+
+        StartMissionInternal();
+        Debug.Log($"[DeliveryManager] Continue dari delivery ke-{currentDelivery}");
+    }
+
+    void StartMissionInternal()
+    {
+        missionActive = true;
+        missionPanel.SetActive(true);
+        arrowIndicator.gameObject.SetActive(true);
+        if (hudManager != null) hudManager.StartHUD();
+        UpdateMissionUI();
+    }
+
     void Update()
     {
         if (missionActive)
@@ -37,24 +69,13 @@ public class DeliveryManager : MonoBehaviour
         if (arrowIndicator == null) return;
 
         Vector3 targetPos = deliveryPoints[currentDelivery].position;
-        Vector3 truckPos  = truck.position;
+        Vector3 truckPos = truck.position;
         Vector3 direction = targetPos - truckPos;
         direction.y = 0;
 
         float angle = Mathf.Atan2(direction.x, direction.z) * Mathf.Rad2Deg;
         angle -= truck.eulerAngles.y;
         arrowIndicator.rotation = Quaternion.Euler(0, 0, -angle);
-    }
-
-    public void StartMission()
-    {
-        missionActive = true;
-        totalWaktu = 0f;
-        skor = 0;
-        missionPanel.SetActive(true);
-        arrowIndicator.gameObject.SetActive(true);
-        if (hudManager != null) hudManager.StartHUD();
-        UpdateMissionUI();
     }
 
     void UpdateMissionUI()
@@ -77,11 +98,18 @@ public class DeliveryManager : MonoBehaviour
             missionActive = false;
             arrowIndicator.gameObject.SetActive(false);
             if (hudManager != null) hudManager.StopHUD();
+
+            // Hapus save karena misi sudah selesai
+            SaveManager.DeleteSave();
+
             if (misiSelesaiManager != null)
                 misiSelesaiManager.ShowMisiSelesai(currentDelivery, totalWaktu, skor);
         }
         else
         {
+            // Simpan progress setiap delivery selesai
+            SaveManager.SaveProgress(currentDelivery, skor, totalWaktu);
+
             missionText.text = "Makanan diantar!\nTujuan berikutnya:\n"
                              + deliveryPoints[currentDelivery].name;
             UpdateMissionUI();

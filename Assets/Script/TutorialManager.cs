@@ -38,6 +38,13 @@ public class TutorialManager : MonoBehaviour
 
     void Start()
     {
+        // Tidak langsung ShowStep — tunggu dipanggil manual
+        // supaya tidak konflik saat Continue
+    }
+
+    // Dipanggil manual oleh GameInitializer saat New Game
+    public void StartTutorial()
+    {
         if (missionPanel != null) missionPanel.SetActive(false);
         ShowStep(0);
     }
@@ -49,7 +56,7 @@ public class TutorialManager : MonoBehaviour
         instructionText.text = instructions[step];
 
         bool isFirst = step == 0;
-        bool isLast  = step == instructions.Length - 1;
+        bool isLast = step == instructions.Length - 1;
         nextButton.gameObject.SetActive(isFirst || isLast);
 
         if (nextButtonText != null)
@@ -104,9 +111,9 @@ public class TutorialManager : MonoBehaviour
     void SetHighlight(bool engine, bool gas, bool brake, bool steer)
     {
         if (highlightEngine) highlightEngine.SetActive(engine);
-        if (highlightGas)    highlightGas.SetActive(gas);
-        if (highlightBrake)  highlightBrake.SetActive(brake);
-        if (highlightSteer)  highlightSteer.SetActive(steer);
+        if (highlightGas) highlightGas.SetActive(gas);
+        if (highlightBrake) highlightBrake.SetActive(brake);
+        if (highlightSteer) highlightSteer.SetActive(steer);
     }
 
     public void NextStep()
