@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.EventSystems;
 
 /// <summary>
 /// Forza Horizon-style smooth car camera — v5 (+ Orbit Free Look)
@@ -110,9 +111,36 @@ public class ForzaCameraController : MonoBehaviour
         _currentFOV = baseFOV;
     }
 
-    // ── INPUT di Update ───────────────────────────────────────────
     void Update()
     {
+        // ── BLOCK input kamera saat jari di UI atau steering wheel ──
+        bool touchingUI = false;
+
+        #if UNITY_EDITOR || UNITY_STANDALONE
+        if (EventSystem.current != null)
+            touchingUI = EventSystem.current.IsPointerOverGameObject();
+        #else
+        for (int i = 0; i < Input.touchCount; i++)
+        {
+            if (EventSystem.current != null &&
+                EventSystem.current.IsPointerOverGameObject(Input.GetTouch(i).fingerId))
+            {
+                touchingUI = true;
+                break;
+            }
+        }
+        #endif
+
+        // Cek steering wheel sedang dipakai
+        bool steeringActive = SteeringWheel.IsBeingUsed;
+
+        // Kalau UI atau steering aktif, block semua input kamera
+        if (touchingUI || steeringActive)
+        {
+            _isOrbiting = false;
+            return;
+        }
+
         bool holding = Input.GetMouseButton(1) || Input.GetKey(freeLookKey);
 
         float mouseX = Input.GetAxis("Mouse X");
@@ -149,12 +177,9 @@ public class ForzaCameraController : MonoBehaviour
             }
         }
 
-        // ── Mouse SELALU memutar kamera, tidak ada auto-return ───────
-        _orbitYaw += mouseX * mouseSensitivity;
+        _orbitYaw   += mouseX * mouseSensitivity;
         _orbitPitch -= mouseY * mouseSensitivity;
-        _orbitPitch = Mathf.Clamp(_orbitPitch, pitchMin, pitchMax);
-
-        // AUTO-RETURN DIHAPUS — kamera bebas di posisi manapun
+        _orbitPitch  = Mathf.Clamp(_orbitPitch, pitchMin, pitchMax);
     }
 
     void LateUpdate()
@@ -172,7 +197,7 @@ public class ForzaCameraController : MonoBehaviour
         // ── 2. HITUNG POSISI KAMERA DARI ORBIT ───────────────────
         float orbitRadius = distanceBehind;
 
-        float yawRad = _orbitYaw * Mathf.Deg2Rad;
+        float yawRad   = _orbitYaw   * Mathf.Deg2Rad;
         float pitchRad = _orbitPitch * Mathf.Deg2Rad;
 
         Vector3 orbitOffset = new Vector3(
@@ -278,7 +303,7 @@ public class ForzaCameraController : MonoBehaviour
     {
         if (carTarget == null) return;
 
-        _orbitYaw = carTarget.eulerAngles.y + 180f;
+        _orbitYaw   = carTarget.eulerAngles.y + 180f;
         _orbitPitch = 0f;
 
         float yawRad = _orbitYaw * Mathf.Deg2Rad;
@@ -291,7 +316,7 @@ public class ForzaCameraController : MonoBehaviour
         transform.position = _basePosition;
         transform.LookAt(carTarget);
         _smoothVelocity = Vector3.zero;
-        _currentYawRot = Quaternion.Euler(0f, carTarget.eulerAngles.y, 0f);
+        _currentYawRot  = Quaternion.Euler(0f, carTarget.eulerAngles.y, 0f);
     }
 
     public bool IsOrbiting => _isOrbiting;
@@ -301,11 +326,11 @@ public class ForzaCameraController : MonoBehaviour
     {
         if (carTarget == null) return;
         Gizmos.color = new Color(0f, 1f, 1f, 0.3f);
-        int   seg    = 32;
-        float r      = distanceBehind;
+        int   seg = 32;
+        float r   = distanceBehind;
         for (int i = 0; i < seg; i++)
         {
-            float a1 = (i / (float)seg)       * Mathf.PI * 2f;
+            float a1 = (i       / (float)seg) * Mathf.PI * 2f;
             float a2 = ((i + 1) / (float)seg) * Mathf.PI * 2f;
             Gizmos.DrawLine(
                 carTarget.position + new Vector3(Mathf.Sin(a1) * r, heightAbove, Mathf.Cos(a1) * r),

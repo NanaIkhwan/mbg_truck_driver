@@ -20,6 +20,7 @@ public class SteeringWheel : MonoBehaviour, IPointerDownHandler, IDragHandler, I
 
     [HideInInspector] public bool isSteeringLeft  = false;
     [HideInInspector] public bool isSteeringRight = false;
+    public static bool IsBeingUsed = false;
 
     void Awake()
     {
@@ -36,8 +37,6 @@ public class SteeringWheel : MonoBehaviour, IPointerDownHandler, IDragHandler, I
             {
                 targetAngle = -keyInput * maxRotationAngle;
                 truckMobil.SetSteerInput(keyInput);
-
-                // Deteksi arah dari keyboard
                 isSteeringLeft  = keyInput < -0.1f;
                 isSteeringRight = keyInput >  0.1f;
             }
@@ -46,7 +45,6 @@ public class SteeringWheel : MonoBehaviour, IPointerDownHandler, IDragHandler, I
                 targetAngle = Mathf.Lerp(targetAngle, 0f, Time.deltaTime * returnSpeed);
                 float steerValue = -(currentAngle / maxRotationAngle);
                 truckMobil.SetSteerInput(steerValue);
-
                 isSteeringLeft  = false;
                 isSteeringRight = false;
             }
@@ -59,6 +57,7 @@ public class SteeringWheel : MonoBehaviour, IPointerDownHandler, IDragHandler, I
     public void OnPointerDown(PointerEventData eventData)
     {
         isDragging = true;
+        IsBeingUsed = true;
         lastTouchAngle = GetAngleFromCenter(eventData.position);
     }
 
@@ -77,7 +76,6 @@ public class SteeringWheel : MonoBehaviour, IPointerDownHandler, IDragHandler, I
         float steerValue = -(targetAngle / maxRotationAngle);
         truckMobil.SetSteerInput(steerValue);
 
-        // Deteksi arah dari steering wheel
         isSteeringRight = targetAngle < -5f;
         isSteeringLeft  = targetAngle >  5f;
     }
@@ -85,6 +83,7 @@ public class SteeringWheel : MonoBehaviour, IPointerDownHandler, IDragHandler, I
     public void OnPointerUp(PointerEventData eventData)
     {
         isDragging = false;
+        IsBeingUsed = false;
         isSteeringLeft  = false;
         isSteeringRight = false;
         truckMobil.SetSteerInput(0f);
@@ -95,7 +94,6 @@ public class SteeringWheel : MonoBehaviour, IPointerDownHandler, IDragHandler, I
         Vector2 centerScreen = RectTransformUtility.WorldToScreenPoint(
             null, rectTransform.position
         );
-
         Vector2 direction = touchPosition - centerScreen;
         return Mathf.Atan2(direction.x, -direction.y) * Mathf.Rad2Deg;
     }
