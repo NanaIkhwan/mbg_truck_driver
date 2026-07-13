@@ -1,17 +1,6 @@
 using UnityEngine;
 using UnityEngine.EventSystems;
 
-/// <summary>
-/// Forza Horizon-style smooth car camera — v5 (+ Orbit Free Look)
-/// ─────────────────────────────────────────────────────────────
-/// WAJIB: Rigidbody mobil → Interpolation = "Interpolate"
-/// Attach ke Main Camera. Camera jangan jadi child mobil.
-///
-/// FREE LOOK / ORBIT:
-///   - Geser mouse → kamera langsung merespons
-///   - Tahan klik kanan (Mouse1) ATAU tahan FreeLookKey (default: Alt) → cursor lock
-///   - Diam → kamera smooth kembali ke posisi belakang mobil
-/// </summary>
 public class ForzaCameraController : MonoBehaviour
 {
     // ── REFERENCES ────────────────────────────────────────────────
@@ -27,7 +16,7 @@ public class ForzaCameraController : MonoBehaviour
     [Range(0.05f, 0.5f)]
     public float positionSmoothTime = 0.18f;
 
-    // ── ROTATION (follow normal) ──────────────────────────────────
+    // ── ROTATION ──────────────────────────────────────────────────
     [Header("Rotation")]
     [Range(1f, 12f)]
     public float rotationSmoothSpeed = 4f;
@@ -37,21 +26,24 @@ public class ForzaCameraController : MonoBehaviour
 
     // ── ORBIT FREE LOOK ───────────────────────────────────────────
     [Header("Orbit Free Look")]
-    [Tooltip("Tahan tombol ini ATAU klik kanan untuk cursor lock.")]
     public KeyCode freeLookKey = KeyCode.LeftAlt;
-
-    [Tooltip("Sensitivitas drag mouse saat orbit.")]
     public float mouseSensitivity = 3f;
+    public float touchSensitivity = 0.15f; // sensitivitas drag jari di Android
 
-    [Tooltip("Batas pitch orbit (derajat). Negatif = lihat ke bawah.")]
+    [Tooltip("Batas pitch orbit (derajat).")]
     public float pitchMin = -20f;
     public float pitchMax = 50f;
 
-    [Tooltip("Kecepatan kamera kembali ke posisi belakang setelah orbit.")]
-    [Range(1f, 10f)]
-    public float returnSpeed = 4f;
+    [Tooltip("Kecepatan kamera kembali ke belakang truk setelah freelook.")]
+    [Range(0.5f, 8f)]
+    public float returnSpeed = 2f;
 
-    [Tooltip("Sembunyikan cursor saat orbit aktif.")]
+    [Tooltip("Kecepatan minimum truk (m/s) agar kamera mulai auto-return.")]
+    public float returnSpeedThreshold = 1f;
+
+    [Tooltip("Delay (detik) setelah jari dilepas sebelum kamera mulai balik.")]
+    public float returnDelay = 0.8f;
+
     public bool hideCursor = true;
 
     // ── FOV ───────────────────────────────────────────────────────
@@ -77,7 +69,7 @@ public class ForzaCameraController : MonoBehaviour
     public float shakeIntensity = 0.012f;
     public float shakeFrequency = 9f;
 
-    // ── PRIVATE: follow normal ────────────────────────────────────
+    // ── PRIVATE ───────────────────────────────────────────────────
     Camera _cam;
     float _currentFOV;
     float _currentLean;
@@ -86,12 +78,19 @@ public class ForzaCameraController : MonoBehaviour
     Vector3 _smoothVelocity;
     Vector3 _basePosition;
 
-    // ── PRIVATE: orbit ────────────────────────────────────────────
     bool _isOrbiting;
     float _orbitYaw;
     float _orbitPitch;
 
-    // ─────────────────────────────────────────────────────────────
+    float _returnTimer = 0f;       // countdown sebelum auto-return aktif
+    bool _isReturning = false;     // sedang dalam proses return ke belakang truk
+
+    // Touch tracking untuk Android
+    #pragma warning disable 0414
+    int _activeTouchId = -1;
+    Vector2 _lastTouchPos;
+    #pragma warning restore 0414
+
     void Awake()
     {
         _cam = GetComponent<Camera>();
@@ -101,7 +100,6 @@ public class ForzaCameraController : MonoBehaviour
             carRigidbody.interpolation == RigidbodyInterpolation.None)
         {
             carRigidbody.interpolation = RigidbodyInterpolation.Interpolate;
-            Debug.Log("[ForzaCamera] Auto-set Rigidbody Interpolation = Interpolate");
         }
     }
 
@@ -113,13 +111,13 @@ public class ForzaCameraController : MonoBehaviour
 
     void Update()
     {
-        // ── BLOCK input kamera saat jari di UI atau steering wheel ──
+        // ── Block input saat UI atau steering aktif ───────────────
         bool touchingUI = false;
 
-        #if UNITY_EDITOR || UNITY_STANDALONE
+#if UNITY_EDITOR || UNITY_STANDALONE
         if (EventSystem.current != null)
             touchingUI = EventSystem.current.IsPointerOverGameObject();
-        #else
+#else
         for (int i = 0; i < Input.touchCount; i++)
         {
             if (EventSystem.current != null &&
@@ -129,57 +127,122 @@ public class ForzaCameraController : MonoBehaviour
                 break;
             }
         }
-        #endif
+#endif
 
-        // Cek steering wheel sedang dipakai
-        bool steeringActive = SteeringWheel.IsBeingUsed;
-
-        // Kalau UI atau steering aktif, block semua input kamera
-        if (touchingUI || steeringActive)
+        if (touchingUI || SteeringWheel.IsBeingUsed)
         {
-            _isOrbiting = false;
+            // Jangan reset _isOrbiting agar tidak snap saat jari geser UI
             return;
         }
 
+        float deltaYaw = 0f;
+        float deltaPitch = 0f;
+        bool userDragging = false;
+
+        // ── PC: mouse drag ────────────────────────────────────────
+#if UNITY_EDITOR || UNITY_STANDALONE
         bool holding = Input.GetMouseButton(1) || Input.GetKey(freeLookKey);
-
-        float mouseX = Input.GetAxis("Mouse X");
-        float mouseY = Input.GetAxis("Mouse Y");
-
         if (holding)
         {
-            if (!_isOrbiting)
-            {
-                Vector3 dir = transform.position - carTarget.position;
-                _orbitYaw = Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg;
-                _orbitPitch = Mathf.Asin(Mathf.Clamp(dir.normalized.y, -1f, 1f))
-                              * Mathf.Rad2Deg;
-                _orbitPitch = Mathf.Clamp(_orbitPitch, pitchMin, pitchMax);
-                _isOrbiting = true;
+            deltaYaw = Input.GetAxis("Mouse X") * mouseSensitivity;
+            deltaPitch = -Input.GetAxis("Mouse Y") * mouseSensitivity;
+            userDragging = true;
 
-                if (hideCursor)
+            if (!_isOrbiting && hideCursor)
+            {
+                Cursor.lockState = CursorLockMode.Locked;
+                Cursor.visible = false;
+            }
+        }
+        else if (_isOrbiting && hideCursor)
+        {
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+        }
+#endif
+
+        // ── Android: satu jari drag di area non-UI ────────────────
+#if !UNITY_EDITOR && !UNITY_STANDALONE
+        if (_activeTouchId == -1)
+        {
+            // Cari jari baru yang tidak menyentuh UI
+            for (int i = 0; i < Input.touchCount; i++)
+            {
+                Touch t = Input.GetTouch(i);
+                if (t.phase == TouchPhase.Began &&
+                    !EventSystem.current.IsPointerOverGameObject(t.fingerId) &&
+                    !SteeringWheel.IsBeingUsed)
                 {
-                    Cursor.lockState = CursorLockMode.Locked;
-                    Cursor.visible = false;
+                    _activeTouchId  = t.fingerId;
+                    _lastTouchPos   = t.position;
+                    break;
                 }
             }
         }
         else
         {
-            if (_isOrbiting)
+            // Tracking jari aktif
+            bool found = false;
+            for (int i = 0; i < Input.touchCount; i++)
             {
-                _isOrbiting = false;
-                if (hideCursor)
+                Touch t = Input.GetTouch(i);
+                if (t.fingerId == _activeTouchId)
                 {
-                    Cursor.lockState = CursorLockMode.None;
-                    Cursor.visible = true;
+                    found = true;
+                    if (t.phase == TouchPhase.Moved)
+                    {
+                        Vector2 delta = t.position - _lastTouchPos;
+                        deltaYaw      =  delta.x * touchSensitivity;
+                        deltaPitch    = -delta.y * touchSensitivity;
+                        userDragging  = true;
+                    }
+                    _lastTouchPos = t.position;
+
+                    if (t.phase == TouchPhase.Ended || t.phase == TouchPhase.Canceled)
+                    {
+                        _activeTouchId = -1;
+                        found = false;
+                    }
+                    break;
                 }
             }
+            if (!found) _activeTouchId = -1;
         }
+#endif
 
-        _orbitYaw   += mouseX * mouseSensitivity;
-        _orbitPitch -= mouseY * mouseSensitivity;
-        _orbitPitch  = Mathf.Clamp(_orbitPitch, pitchMin, pitchMax);
+        // ── Handle orbit state ────────────────────────────────────
+        if (userDragging)
+        {
+            if (!_isOrbiting)
+            {
+                // Snap orbit yaw ke posisi kamera saat ini
+                Vector3 dir = transform.position - carTarget.position;
+                _orbitYaw = Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg;
+                _orbitPitch = Mathf.Asin(Mathf.Clamp(dir.normalized.y, -1f, 1f)) * Mathf.Rad2Deg;
+                _orbitPitch = Mathf.Clamp(_orbitPitch, pitchMin, pitchMax);
+                _isOrbiting = true;
+            }
+
+            _orbitYaw += deltaYaw;
+            _orbitPitch += deltaPitch;
+            _orbitPitch = Mathf.Clamp(_orbitPitch, pitchMin, pitchMax);
+
+            // Reset timer return setiap kali user masih drag
+            _returnTimer = returnDelay;
+            _isReturning = false;
+        }
+        else
+        {
+            _isOrbiting = false;
+
+            // Countdown sebelum mulai return
+            if (_returnTimer > 0f)
+            {
+                _returnTimer -= Time.deltaTime;
+                if (_returnTimer <= 0f)
+                    _isReturning = true;
+            }
+        }
     }
 
     void LateUpdate()
@@ -189,39 +252,59 @@ public class ForzaCameraController : MonoBehaviour
         float dt = Time.deltaTime;
         if (dt <= 0f) return;
 
-        // ── 1. SPEED ──────────────────────────────────────────────
         Vector3 vel = carRigidbody.linearVelocity;
         float speed = vel.magnitude;
         float speedRatio = Mathf.Clamp01(speed / Mathf.Max(maxSpeedForFOV, 1f));
 
-        // ── 2. HITUNG POSISI KAMERA DARI ORBIT ───────────────────
-        float orbitRadius = distanceBehind;
+        // ── AUTO RETURN ke belakang truk ──────────────────────────
+        float targetYaw = carTarget.eulerAngles.y + 180f;
 
-        float yawRad   = _orbitYaw   * Mathf.Deg2Rad;
+        if (_isReturning && speed > returnSpeedThreshold)
+        {
+            // Smooth return yaw ke belakang truk
+            _orbitYaw = Mathf.LerpAngle(_orbitYaw, targetYaw, returnSpeed * dt);
+
+            // Return pitch ke 0
+            _orbitPitch = Mathf.Lerp(_orbitPitch, 0f, returnSpeed * dt);
+
+            // Snap jika sudah sangat dekat
+            if (Mathf.Abs(Mathf.DeltaAngle(_orbitYaw, targetYaw)) < 0.5f &&
+                Mathf.Abs(_orbitPitch) < 0.5f)
+            {
+                _orbitYaw = targetYaw;
+                _orbitPitch = 0f;
+                _isReturning = false;
+            }
+        }
+        else if (!_isOrbiting && !_isReturning)
+        {
+            // Saat tidak freelook dan tidak returning:
+            // Ikuti rotasi truk secara smooth supaya kamera tidak ketinggalan saat belok
+            _orbitYaw = Mathf.LerpAngle(_orbitYaw, targetYaw, rotationSmoothSpeed * dt);
+        }
+
+        // ── Hitung posisi kamera ──────────────────────────────────
+        float yawRad = _orbitYaw * Mathf.Deg2Rad;
         float pitchRad = _orbitPitch * Mathf.Deg2Rad;
 
         Vector3 orbitOffset = new Vector3(
-            orbitRadius * Mathf.Sin(yawRad) * Mathf.Cos(pitchRad),
-            orbitRadius * Mathf.Sin(pitchRad) + heightAbove,
-            orbitRadius * Mathf.Cos(yawRad) * Mathf.Cos(pitchRad)
+            distanceBehind * Mathf.Sin(yawRad) * Mathf.Cos(pitchRad),
+            distanceBehind * Mathf.Sin(pitchRad) + heightAbove,
+            distanceBehind * Mathf.Cos(yawRad) * Mathf.Cos(pitchRad)
         );
 
         Vector3 desiredPos = carTarget.position + orbitOffset;
 
-        // ── 3. SMOOTH POSITION ────────────────────────────────────
         float smoothTime = _isOrbiting ? positionSmoothTime * 0.5f : positionSmoothTime;
         float maxSpd = Vector3.Distance(_basePosition, desiredPos) / smoothTime * 1.5f;
 
         _basePosition = Vector3.SmoothDamp(
-            _basePosition,
-            desiredPos,
+            _basePosition, desiredPos,
             ref _smoothVelocity,
-            smoothTime,
-            maxSpd,
-            dt
+            smoothTime, maxSpd, dt
         );
 
-        // ── 4. LOOK AT MOBIL ──────────────────────────────────────
+        // ── Look at truk ──────────────────────────────────────────
         Vector3 lookPoint;
         if (_isOrbiting)
         {
@@ -237,7 +320,7 @@ public class ForzaCameraController : MonoBehaviour
         if (lookDir.sqrMagnitude < 0.001f) lookDir = Vector3.forward;
         Quaternion lookRot = Quaternion.LookRotation(lookDir.normalized, Vector3.up);
 
-        // ── 5. DRIFT LEAN ─────────────────────────────────────────
+        // ── Drift lean ────────────────────────────────────────────
         Quaternion leanRot = Quaternion.identity;
         if (!_isOrbiting)
         {
@@ -246,8 +329,7 @@ public class ForzaCameraController : MonoBehaviour
             if (speed > 2f)
                 targetLean = Mathf.Clamp(
                     -(lateralVel / speed) * maxLeanAngle,
-                    -maxLeanAngle, maxLeanAngle
-                );
+                    -maxLeanAngle, maxLeanAngle);
             _currentLean = Mathf.Lerp(_currentLean, targetLean, leanSmoothSpeed * dt);
             leanRot = Quaternion.Euler(0f, 0f, _currentLean);
         }
@@ -257,7 +339,7 @@ public class ForzaCameraController : MonoBehaviour
             leanRot = Quaternion.Euler(0f, 0f, _currentLean);
         }
 
-        // ── 6. SHAKE (nonaktif saat orbit) ────────────────────────
+        // ── Shake ─────────────────────────────────────────────────
         _shakeTimer += dt * shakeFrequency;
         float shakeMag = _isOrbiting ? 0f : speedRatio * shakeIntensity;
         Vector3 shakeOffset = new Vector3(
@@ -266,14 +348,14 @@ public class ForzaCameraController : MonoBehaviour
             0f
         );
 
-        // ── 7. APPLY ──────────────────────────────────────────────
+        // ── Apply ─────────────────────────────────────────────────
         transform.position = _basePosition + shakeOffset;
         transform.rotation = lookRot * leanRot;
 
-        // ── 8. FOV ────────────────────────────────────────────────
+        // ── FOV ───────────────────────────────────────────────────
         float targetFOV = _isOrbiting
-                        ? baseFOV
-                        : baseFOV + maxFOVAdd * speedRatio;
+            ? baseFOV
+            : baseFOV + maxFOVAdd * speedRatio;
         _currentFOV = Mathf.Lerp(_currentFOV, targetFOV, fovSmoothSpeed * dt);
         if (_cam != null) _cam.fieldOfView = _currentFOV;
     }
@@ -292,7 +374,7 @@ public class ForzaCameraController : MonoBehaviour
         {
             float t = elapsed / duration;
             transform.position = _basePosition
-                               + Random.insideUnitSphere * (magnitude * (1f - t));
+                + Random.insideUnitSphere * (magnitude * (1f - t));
             elapsed += Time.deltaTime;
             yield return null;
         }
@@ -303,7 +385,7 @@ public class ForzaCameraController : MonoBehaviour
     {
         if (carTarget == null) return;
 
-        _orbitYaw   = carTarget.eulerAngles.y + 180f;
+        _orbitYaw = carTarget.eulerAngles.y + 180f;
         _orbitPitch = 0f;
 
         float yawRad = _orbitYaw * Mathf.Deg2Rad;
@@ -316,7 +398,9 @@ public class ForzaCameraController : MonoBehaviour
         transform.position = _basePosition;
         transform.LookAt(carTarget);
         _smoothVelocity = Vector3.zero;
-        _currentYawRot  = Quaternion.Euler(0f, carTarget.eulerAngles.y, 0f);
+        _currentYawRot = Quaternion.Euler(0f, carTarget.eulerAngles.y, 0f);
+        _returnTimer = 0f;
+        _isReturning = false;
     }
 
     public bool IsOrbiting => _isOrbiting;
@@ -326,11 +410,10 @@ public class ForzaCameraController : MonoBehaviour
     {
         if (carTarget == null) return;
         Gizmos.color = new Color(0f, 1f, 1f, 0.3f);
-        int   seg = 32;
-        float r   = distanceBehind;
+        int seg = 32; float r = distanceBehind;
         for (int i = 0; i < seg; i++)
         {
-            float a1 = (i       / (float)seg) * Mathf.PI * 2f;
+            float a1 = (i / (float)seg) * Mathf.PI * 2f;
             float a2 = ((i + 1) / (float)seg) * Mathf.PI * 2f;
             Gizmos.DrawLine(
                 carTarget.position + new Vector3(Mathf.Sin(a1) * r, heightAbove, Mathf.Cos(a1) * r),
